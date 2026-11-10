@@ -1,0 +1,24 @@
+FILESYSTEM
+
+BYTES           DATA
+-------------------------
+8               DISK SIZE               \
+8               GROUPS                   |
+8               BLOCK SIZE               | SUPER BLOCK 32 BYTES
+8               BLOCK NUM                |
+8               INODE NUM               /
+
+
+INODE NUM       INODE BIT              > INODE BITMAP (INODE NUM)                   \
+                                                                                     |
+BLOCK NUM       DATA BLOCK BIT         > DATA BLOCK BITMAP (BLOCK NUM)               |
+                                                                                     |
+1               FILE TYPE               \                                            |
+9               PERMISSIONS              |                                           | GROUP ( [51 x INODE NUM + (BLOCK SIZE + 1) x BLOCK NUM] x GROUPS )
+8               OWNER UID                |  INODES (50 x INODE NUM)                  |
+8               GROUP GID                |                                           |
+8               FILE SIZE                |                                           |
+8               HARD LINKS               |                                           |
+8               INODE ID                /                                            |
+                                                                                     |
+BLOCK SIZE      DATA BLOCK             >  DATA BLOCK (BLOCK SIZE x BLOCK NUM)       /

@@ -5,4 +5,8 @@ set(CMAKE_C_STANDARD 11)
 
 add_executable(linuxFileEmulator main.c
         filesystem.c
-        filesystem.h)
+        filesystem.h
+        utility.c
+        utility.h
+        fs_utility.c
+        fs_utility.h)
