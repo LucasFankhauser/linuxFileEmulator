@@ -1,0 +1,8 @@
+//
+// Created by Lucas on 11/11/2026.
+//
+
+#ifndef LINUXFILEEMULATOR_SHELL_H
+#define LINUXFILEEMULATOR_SHELL_H
+
+#endif //LINUXFILEEMULATOR_SHELL_H
