@@ -16,5 +16,6 @@ long get_pos(int file, char* attr);
 int parse_set(int file, char* value, char* attr);
 int get_len(char* char_array, int max);
 int get_len(char* char_array, int max);
+int is_space(char c);
 
 #endif //LINUXFILEEMULATOR_UTILITY_H

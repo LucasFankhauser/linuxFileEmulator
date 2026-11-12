@@ -42,7 +42,7 @@ char* fs_read(int fs, int offset, int space) {
 
 
 void fs_write_num(int fs, int offset, int space, int num ) {
-    char num_string[space];
+    char num_string[space + 1];
     snprintf(num_string, sizeof(num_string), "%d", num);
     fs_write(fs, offset, space, num_string);
 }

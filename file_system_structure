@@ -15,10 +15,27 @@ BLOCK NUM       DATA BLOCK BIT         > DATA BLOCK BITMAP (BLOCK NUM)          
                                                                                      |
 1               FILE TYPE               \                                            |
 9               PERMISSIONS              |                                           | GROUP ( [51 x INODE NUM + (BLOCK SIZE + 1) x BLOCK NUM] x GROUPS )
-8               OWNER UID                |  INODES (50 x INODE NUM)                  |
+8               OWNER UID                |  INODES (178 x INODE NUM)                 |
 8               GROUP GID                |                                           |
 8               FILE SIZE                |                                           |
 8               HARD LINKS               |                                           |
-8               INODE ID                /                                            |
+8               ALLOCATED_BLOCKS         |                                           |
+8               INODE ID                 |                                           |
+8               DIRECT BLOCK 1           |                                           |
+8               DIRECT BLOCK 2           |                                           |
+8               DIRECT BLOCK 3           |                                           |
+8               DIRECT BLOCK 4           |                                           |
+8               DIRECT BLOCK 5           |                                           |
+8               DIRECT BLOCK 6           |                                           |
+8               DIRECT BLOCK 7           |                                           |
+8               DIRECT BLOCK 8           |                                           |
+8               DIRECT BLOCK 9           |                                           |
+8               DIRECT BLOCK 10          |                                           |
+8               DIRECT BLOCK 11          |                                           |
+8               DIRECT BLOCK 12          |                                           |
+8               INDIRECT BLOCK           |                                           |
+8               DOUBLE INDIRECT BLOCK    |                                           |
+8               TRIPLE INDIRECT BLOCK    /                                           |
                                                                                      |
 BLOCK SIZE      DATA BLOCK             >  DATA BLOCK (BLOCK SIZE x BLOCK NUM)       /
+

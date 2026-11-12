@@ -131,3 +131,7 @@ int str_match(char* str1, char* str2) {
     }
     return -1;
 }
+
+int is_space(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
