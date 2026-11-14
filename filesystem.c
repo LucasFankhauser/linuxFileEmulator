@@ -10,8 +10,14 @@ const int SUPER_BLOCK_SIZE = 40;
 const int INODE_SIZE = 178;
 const int INODE_ARRAY_SIZE = 15;
 const int INODE_NULL_VALUE = 99999990;
+const int MAX_FILE_NAME = 24;
 
+
+int get_max_file_name() {
+    return MAX_FILE_NAME;
+}
 int init() {
+
     printf("Initiating Filesystem\n");
 
 
@@ -32,7 +38,7 @@ int init() {
         printf("No filesystem detected creating new one\n");
         create_fs(config);
         free(config);
-        return 0;
+        return open_fs();
     }
 
     int fs;
@@ -63,7 +69,6 @@ int open_fs() {
         printf("Failed to open file for filesystem\n");
         return -1;
     }
-    create_dir(fs, "", "~");
     return fs;
 }
 
@@ -110,16 +115,67 @@ int create_fs(Config* config) {
         }
 
     }
-
-    create_dir(fs, "", "~");
-
-    write_to_inode(fs, 0, 0, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", -1);
-    char read_buffer[209];
-    read_from_inode(fs, 0, 0,read_buffer, 208);
-    read_buffer[208] = '\0';
-    printf("Read buffer: %s\n", read_buffer);
+    create_root_directory(fs);
+    create_dir(fs, "/", "~");
     close(fs);
     return 0;
+}
+
+int write_word_to_inode(int fs, int inode, int offset, char* write_buffer, int write_len) {
+    char str_buffer[write_len];
+    int hit_end = 0;
+    for (int i = 0; i < write_len; i++) {
+        if (write_buffer[i] == '\0') {
+            hit_end = 1;
+        }
+        if (hit_end == 1) {
+            str_buffer[i] = '?';
+        } else {
+            str_buffer[i] = write_buffer[i];
+        }
+    }
+    return write_to_inode(fs, inode, offset, str_buffer, write_len);
+}
+
+int read_word_from_inode(int fs, int inode, int offset, char* read_buffer, int read_len) {
+    if (read_from_inode(fs, inode, offset, read_buffer, read_len) == -1) {
+        return -1;
+    }
+
+    for (int i = 0; i < read_len; i++) {
+        if (read_buffer[i] == '?') {
+            read_buffer[i] = '\0';
+            break;
+        }
+    }
+    return 0;
+}
+
+int write_num_to_inode(int fs, int inode, int offset, int value, int space) {
+    char int_as_str[space + 1];
+    snprintf(int_as_str, sizeof(int_as_str), "%d", value);
+    for (int i = 0; i < space; i++) {
+        if (!(int_as_str[i] >= '0' && int_as_str[i] <= '9' )) {
+            int_as_str[i] = '?';
+        }
+    }
+    return write_to_inode(fs, inode, offset, int_as_str, space);
+}
+
+int read_num_from_inode(int fs, int inode, int offset, int read_len) {
+    char str_buffer[read_len];
+    if (read_from_inode(fs, inode, offset, str_buffer, read_len) == -1) {
+        return -1;
+    }
+    char int_as_str[read_len + 1];
+    int_as_str[read_len] = '\0';
+    for (int i = 0; i < read_len; i++) {
+        if (!(int_as_str[i] >= '0' && int_as_str[i] <= '9' )) {
+            int_as_str[i] = '\0';
+            break;
+        }
+    }
+    return atoi(str_buffer);
 }
 
 int write_to_inode(int fs, int inode, int offset, char* write_buffer, int write_len) {
@@ -131,12 +187,17 @@ int write_to_inode(int fs, int inode, int offset, char* write_buffer, int write_
         printf("Failed to open superblock");
         return -1;
     }
-
+    if (offset == -1) {
+        offset = get_inode_file_size(fs, inode);
+    }
     int end_offset = offset + write_len;
     int allocated_space = get_inode_allocated_blocks(fs, inode) * superblock->BLOCK_SIZE;
     //create space for write
     while (end_offset > allocated_space) {
-        inode_add_block(fs, inode);
+        if (inode_add_block(fs, inode) == -1) {
+            free(superblock);
+            return -1;
+        }
         allocated_space += superblock->BLOCK_SIZE;
     }
     if (end_offset > get_inode_file_size(fs, inode)) {
@@ -146,21 +207,22 @@ int write_to_inode(int fs, int inode, int offset, char* write_buffer, int write_
     int block_num = offset / superblock->BLOCK_SIZE;
     int block_offset = offset - (block_num * superblock->BLOCK_SIZE);
     int write_offset = 0;
-
     while (write_len - write_offset > 0) {
         int block_id = get_inode_block_id(fs, inode, block_num);
         int block_pos = get_block_offset(fs, block_id);
-        char write_char = write_buffer[write_offset];
-        fs_write(fs, block_pos + block_offset, 1, &write_char);
-        block_offset += 1;
-        write_offset += 1;
         int remaining_space = superblock->BLOCK_SIZE - block_offset;
+        int remaining_data = write_len - write_offset;
 
-        if (remaining_space <= 0) {
-            block_num += 1;
-            block_offset = 0;
-        }
+        int chunk_size = remaining_space < remaining_data ? remaining_space : remaining_data;
+
+        fs_write(fs, block_pos + block_offset, chunk_size, write_buffer + write_offset);
+        write_offset += chunk_size;
+
+        block_num++;
+        block_offset = 0;
     }
+    free(superblock);
+    return 0;
 }
 
 int read_from_inode(int fs, int inode, int offset, char* read_buffer, int read_len) {
@@ -177,23 +239,43 @@ int read_from_inode(int fs, int inode, int offset, char* read_buffer, int read_l
     int read_offset = 0;
 
     if (end_offset > get_inode_file_size(fs, inode)) {
-        end_offset = get_inode_file_size(fs, inode);
+        read_len  = get_inode_file_size(fs, inode) - offset;
     }
 
-    while (read_len - read_offset > 0) {
+    while (read_offset < read_len) {
         int block_id = get_inode_block_id(fs, inode, block_num);
         int block_pos = get_block_offset(fs, block_id);
-        char read_char = fs_read(fs, block_pos + block_offset, 1)[0];
-        read_buffer[read_offset] = read_char;
-        block_offset += 1;
-        read_offset += 1;
+
         int remaining_space = superblock->BLOCK_SIZE - block_offset;
-        if (remaining_space <= 0) {
-            block_num += 1;
-            block_offset = 0;
+        int remaining_data = read_len - read_offset;
+
+        int chunk_size = remaining_space < remaining_data ? remaining_space : remaining_data;
+
+        char* data = fs_read(fs, block_pos + block_offset, chunk_size);
+
+        if (data == NULL) {
+            free(superblock);
+            return -1;
         }
+
+        for (int i = 0; i < chunk_size; i++) {
+            read_buffer[read_offset + i] = data[i];
+        }
+
+        free(data);
+
+        read_offset += chunk_size;
+        block_num++;
+        block_offset = 0;
     }
+    if (read_offset < end_offset) {
+        read_buffer[read_offset] = '\0';
+    }
+    free(superblock);
+    return 0;
+
 }
+
 int get_inode_block_id(int fs, int id, int pos) {
     Config* superblock = read_super_block(fs);
     if (superblock == NULL) {
@@ -394,31 +476,247 @@ int allocate_block(int fs) {
     return block_id;
 }
 
-void create_dir(int fs, char* path, char* dname) {
-    Config* superblock = read_super_block(fs);
-    if (superblock == NULL) {
-        printf("Failed to open superblock");
+void create_root_directory(int fs) {
+    int inode = create_inode(fs);
+    if (inode == -1) {
+        printf("Failed to create inode\n");
         return;
+    }
+    set_inode_file_type(fs, inode, 'd');
+    set_inode_permissions(fs, inode, "rwx------");
+    set_inode_owner_uid(fs, inode, 0);
+    set_inode_group_uid(fs, inode, 0);
+    write_word_to_inode(fs, inode, -1, ".",MAX_FILE_NAME);
+    write_num_to_inode(fs, inode, -1, inode,8);
+    write_word_to_inode(fs, inode, -1, "..",MAX_FILE_NAME);
+    write_num_to_inode(fs, inode, -1, inode,8);
+}
+
+void create_dir(int fs, const char* path, char* dname) {
+    int parent_node_id = follow_path(fs, path);
+    if (parent_node_id == -1) {
+        printf("Failed to create dir");
+        return;
+    }
+
+    if (get_file(fs, parent_node_id, dname) != -1) {
+        printf("Directory already exists\n");
     }
 
     int inode = create_inode(fs);
     if (inode == -1) {
-        printf("Failed to create inode");
-        free(superblock);
+        printf("Failed to create dir\n");
         return;
     }
 
-    if (path[0] == '\0' ) {
-        set_inode_file_type(fs, inode, 'd');
-        set_inode_permissions(fs, inode, "rwx------");
-        set_inode_owner_uid(fs, inode, 0);
-        set_inode_group_uid(fs, inode, 0);
+    set_inode_file_type(fs, inode, 'd');
+    set_inode_permissions(fs, inode, "rwxrwxrwx");
+    set_inode_owner_uid(fs, inode, 0);
+    set_inode_group_uid(fs, inode, 0);
+    write_word_to_inode(fs, inode, -1, ".",MAX_FILE_NAME);
+    write_num_to_inode(fs, inode, -1, inode,8);
+    write_word_to_inode(fs, inode, -1, "..",MAX_FILE_NAME);
+    write_num_to_inode(fs, inode, -1, parent_node_id,8);
 
-    } else {
-        printf("Not Home DIR\n");
+    write_word_to_inode(fs, parent_node_id, -1, dname,MAX_FILE_NAME);
+    write_num_to_inode(fs, parent_node_id, -1, inode,8);
+
+}
+
+int get_file(int fs, int dir_node, char* fname) {
+    int paths_in_dir = get_inode_file_size(fs, dir_node) / (MAX_FILE_NAME + 8);
+
+    for (int i = 2; i < paths_in_dir; i++) {
+        char filename[MAX_FILE_NAME + 1];
+        filename[0] = '\0';
+        read_word_from_inode(fs, dir_node, (MAX_FILE_NAME + 8)*i, filename, MAX_FILE_NAME );
+        if (str_match(filename, fname) == 0) {
+            return read_num_from_inode(fs, dir_node, (MAX_FILE_NAME + 8)*i + MAX_FILE_NAME, MAX_FILE_NAME);
+        }
+    }
+    return -1;
+}
+
+void create_file(int fs, const char* path, char* fname) {
+    int parent_node_id = follow_path(fs, path);
+    printf("parent_node_id is %d\n", parent_node_id);
+    if (parent_node_id == -1) {
+        printf("Failed to create dir");
+        return;
     }
 
-    free(superblock);
+    if (get_file(fs, parent_node_id, fname) != -1) {
+        printf("File already exists\n");
+    }
+
+    int inode = create_inode(fs);
+    if (inode == -1) {
+        printf("Failed to create dir");
+        return;
+    }
+
+    set_inode_file_type(fs, inode, 'f');
+    set_inode_permissions(fs, inode, "rwxrwxrwx");
+    set_inode_owner_uid(fs, inode, 0);
+    set_inode_group_uid(fs, inode, 0);
+
+    write_word_to_inode(fs, parent_node_id, -1, fname,MAX_FILE_NAME);
+    write_num_to_inode(fs, parent_node_id, -1, inode,8);
+}
+
+int follow_path(int fs, const char* path) {
+
+    //printf("Following path: %s\n", path);
+
+    char current_dir[MAX_FILE_NAME + 1];
+    current_dir[MAX_FILE_NAME] = '\0';
+    get_path_name(0, path, current_dir);
+
+    char last_dir[MAX_FILE_NAME + 1];
+    last_dir[MAX_FILE_NAME] = '\0';
+
+    get_path_name(0, path, last_dir);
+
+    if (!(path[0] == '\0' || path[0] == '/' || path[0] == '\\')) {
+        printf("Path does not start at root directory\n");
+        return -1;
+    }
+
+    if (get_path_name(1, path, current_dir) == 0) { //hit end
+        return 0; //root
+    }
+
+
+
+    int current_inode = 0;
+    int next_inode = 0;
+
+    int path_index = 0;
+
+
+    while (1) { //sets current dir to the next path index stops when hit end
+        get_path_name(path_index, path, last_dir);
+        int path_res = get_path_name(path_index + 1, path, current_dir);
+
+        int found_inode = 0;
+
+        if (!(get_inode_file_type(fs, next_inode)[0] == 'd') ) { //check if entering dir
+            printf("Cannot enter file\n");
+            return -1;
+        }
+
+
+        char name_in_dir[MAX_FILE_NAME + 1];
+       // printf("Inodes in %s\n", last_dir);
+
+        int paths_in_dir = get_inode_file_size(fs, current_inode) / (MAX_FILE_NAME + 8);
+
+        for (int i = 0; i < paths_in_dir; i++) { //checks each file in current directory looking for
+
+            read_word_from_inode(fs, current_inode, (MAX_FILE_NAME + 8) * i, name_in_dir, MAX_FILE_NAME);
+            name_in_dir[MAX_FILE_NAME] = '\0';
+
+            //printf("Inode %d: %s\n", i, name_in_dir);
+
+            if (str_match(name_in_dir, current_dir) == 0) {
+                next_inode = read_num_from_inode(fs, current_inode, (MAX_FILE_NAME + 8) * i + MAX_FILE_NAME, 8);
+
+                //printf("Found file %s in %s\n", name_in_dir, last_dir);
+                current_inode = next_inode;
+                path_index++;
+                found_inode = 1;
+                break;
+            }
+        }
+
+        if (path_res == 0) {
+            //printf("%d\n", current_inode);
+            return current_inode;
+        }
+
+        if (!found_inode) {
+            printf("Could not find %s in directory %s\n", current_dir, last_dir);
+            return -1;
+        }
+    }
+
+}
+
+
+int get_dir_path(int fs, int inode, char** path) {
+    if (get_inode_file_type(fs, inode)[0] != 'd') {
+        return -1;
+    }
+
+    char filename[MAX_FILE_NAME + 1];  //do it once to get path size
+    int path_size = 0;
+    int current_inode = inode;
+    while (current_inode != 0) {
+        int parent_inode = read_num_from_inode(fs, current_inode, MAX_FILE_NAME + 8 + MAX_FILE_NAME, 8);
+        filename[MAX_FILE_NAME] = '\0';
+        int paths_in_dir = get_inode_file_size(fs, parent_inode) / (MAX_FILE_NAME + 8);
+
+        for (int i = 0; i < paths_in_dir; i++) {
+            if (read_num_from_inode(fs, parent_inode, i*(MAX_FILE_NAME + 8) + MAX_FILE_NAME, 8) == current_inode) {
+                read_word_from_inode(fs, parent_inode, i*(MAX_FILE_NAME + 8), filename, MAX_FILE_NAME);
+                break;
+            }
+        }
+        path_size += get_len(filename, -1) + 1;
+
+        current_inode = parent_inode;
+    }
+
+    path_size += get_len(filename, -1) -1;
+
+    *path = malloc(sizeof(char) * (path_size + 1));
+    (*path)[path_size] = '\0';
+    current_inode = inode;
+    int index = 1;
+    while (current_inode != 0) {
+        int parent_inode = read_num_from_inode(fs, current_inode, MAX_FILE_NAME + 8 + MAX_FILE_NAME, 8);
+        filename[MAX_FILE_NAME] = '\0';
+        int paths_in_dir = get_inode_file_size(fs, parent_inode) / (MAX_FILE_NAME + 8);
+
+        for (int i = 0; i < paths_in_dir; i++) {
+            if (read_num_from_inode(fs, parent_inode, i*(MAX_FILE_NAME + 8) + MAX_FILE_NAME, 8) == current_inode) {
+                read_word_from_inode(fs, parent_inode, i*(MAX_FILE_NAME + 8), filename, MAX_FILE_NAME);
+                break;
+            }
+        }
+        int file_name_len = get_len(filename, -1);
+        for (int i = 0; i < file_name_len; i++) {
+            (*path)[path_size - index] = filename[file_name_len - i - 1];
+            index++;
+        }
+        (*path)[path_size - index] = '/';
+        index++;
+
+        current_inode = parent_inode;
+    }
+}
+
+int get_path_name(int index, const char* path, char* file_name) { //gets next dir in path
+    int paths = 0;
+    int i = 0;
+    int name_index = 0;
+    while (path[i] != '\0') {
+        if (path[i] == '\'' || path[i] == '/') {
+            paths++;
+            i++;
+            continue;
+        }
+        if (paths == index ) {
+            file_name[name_index] = path[i];
+            name_index++;
+        }
+        i++;
+    }
+    file_name[name_index] = '\0';
+    if (name_index < index) {
+        return 0; //0 means hit end
+    }
+    return 1;
 }
 
 int create_inode(int fs) {
@@ -442,6 +740,12 @@ void set_inode_file_type(int fs, int id, char value) {
     int offset = get_inode_offset(fs, id);
     fs_write(fs, offset, 1, &value);
 }
+
+char* get_inode_file_type(int fs, int id) {
+    int offset = get_inode_offset(fs, id);
+    return fs_read(fs, offset, 1);
+}
+
 void set_inode_permissions(int fs, int id, char* value) {
     int offset = get_inode_offset(fs, id) + 1;
     fs_write(fs, offset, 9, value);;
@@ -501,7 +805,7 @@ int get_available_inode_id(int fs) {
     int inode_id = 0;
 
     for (int i = 0; i < superblock-> GROUPS; i++) {
-        int offset = SUPER_BLOCK_SIZE + i* group_size(superblock);
+        int offset = SUPER_BLOCK_SIZE + i * group_size(superblock);
         for (int j = 0; j < superblock-> INODE_NUM; j++) {
             int bit = fs_read_num(fs, offset, 1);
             if (bit == 0) {
@@ -513,7 +817,7 @@ int get_available_inode_id(int fs) {
             inode_id++;
         }
     }
-    printf("No available inodes");
+    printf("No available inodes\n");
     free(superblock);
     return -1;
 }
@@ -559,7 +863,7 @@ int get_block_offset(int fs, int id) {
     }
     if (id < 0 || id >= superblock->BLOCK_NUM * superblock->GROUPS) {
         free(superblock);
-        printf("Cannot access data block out of range");
+        printf("Cannot access data block out of range: %d\n", id);
         return -1;
     }
 

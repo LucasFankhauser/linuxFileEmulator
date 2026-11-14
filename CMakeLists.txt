@@ -11,4 +11,5 @@ add_executable(linuxFileEmulator main.c
         fs_utility.c
         fs_utility.h
         shell.c
-        shell.h)
+        shell.h
+)

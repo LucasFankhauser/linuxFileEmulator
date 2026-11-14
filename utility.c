@@ -121,7 +121,7 @@ int parse_set(int file, char* value, char* attr) {
     return 0;
 }
 
-int str_match(char* str1, char* str2) {
+int str_match(const char* str1, const char* str2) {
     int i = 0;
     while (str1[i] == str2[i]) {
         if (str1[i] == '\0') {

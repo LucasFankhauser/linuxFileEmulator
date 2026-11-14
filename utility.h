@@ -11,10 +11,9 @@
 
 
 int parse_get(int file, char* buffer, char* attr);
-int str_match(char* str1, char* str2);
+int str_match(const char* str1, const char* str2);
 long get_pos(int file, char* attr);
 int parse_set(int file, char* value, char* attr);
-int get_len(char* char_array, int max);
 int get_len(char* char_array, int max);
 int is_space(char c);
 

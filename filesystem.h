@@ -23,6 +23,8 @@ typedef struct {
 } Config;
 
 Config* create_config();
+int get_file(int fs, int dir_node, char* fname);
+int get_max_file_name();
 int init();
 int open_fs();
 int create_fs();
@@ -31,7 +33,7 @@ void write_super_block(int fs, Config* config);
 Config* read_super_block(int fs);
 int get_avaible_inode_id(int fs);
 void print_super_block(Config* superblock);
-void create_dir(int fs, char* path, char* dname);
+void create_dir(int fs, const char* path, char* dname);
 int group_size(const Config* config);
 int get_available_block_id(int fs);
 int get_available_inode_id(int fs);
@@ -61,6 +63,15 @@ int write_to_inode(int fs, int inode, int offset, char* write_buffer, int write_
 int get_inode_block_id(int fs, int inode, int block_num);
 int get_block_id_at_pos(int fs, int pos, int indirection, int block_id);
 int read_from_inode(int fs, int inode, int offset, char* write_buffer, int read_len);
+int write_num_to_inode(int fs, int inode, int offset, int value, int space);
+int get_path_name(int index, const char* path, char* file_name);
+int write_word_to_inode(int fs, int inode, int offset, char* write_buffer, int write_len);
+int read_word_from_inode(int fs, int inode, int offset, char* read_buffer, int read_len);
+int follow_path(int fs, const char* path);
+char* get_inode_file_type(int fs, int id);
+void create_root_directory(int fs);
+void create_file(int fs, const char* path, char* fname);
+int get_dir_path(int fs, int inode, char** path);
 #endif //FILESYSTEM_H
 
 
