@@ -15,6 +15,8 @@ typedef struct {
     char* name;
     int arg_num;
     CommandFunc func;
+    char* format;
+    char* description;
 } Command;
 
 void open_shell(int new_fs);

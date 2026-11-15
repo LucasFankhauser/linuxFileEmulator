@@ -7,17 +7,27 @@
 
 Command commands[32];
 int total_commands = 0;
+int last_status = 1;
 
-
-const int MAX_INPUT_LENGTH = 1024;
+const int MAX_INPUT_LENGTH = 4096;
 int fs = -1;
 char* current_path;
 
+void print_command_info(int cid) {
+    Command command = commands[cid];
+    printf("%s %s\n", command.name, command.format);
+    if (command.description[0] != '\0') {
+        printf("%s\n", command.description);
+    }
+    printf("\n");
+}
 
-void add_command(char* name, int arg_num, CommandFunc func) {
+void add_command(char* name, int arg_num, CommandFunc func, char* format, char* description) {
     commands[total_commands].name = name;
     commands[total_commands].func = func;
     commands[total_commands].arg_num = arg_num;
+    commands[total_commands].format = format;
+    commands[total_commands].description = description;
     total_commands++;
 }
 
@@ -47,12 +57,14 @@ int cls(int arg_num, char** args) {
 
     const int MAX_FILE_NAME = get_max_file_name();
     int paths_in_dir = get_inode_file_size(fs, node) / (get_max_file_name() + 8);
-
     for (int i = 2; i < paths_in_dir; i++) {
         char filename[MAX_FILE_NAME + 1];
         filename[MAX_FILE_NAME] = '\0';
         read_word_from_inode(fs, node, (MAX_FILE_NAME + 8)*i, filename, MAX_FILE_NAME );
-        printf("%s\n", filename);
+        int read_node = read_num_from_inode(fs, node, (MAX_FILE_NAME + 8)*i + MAX_FILE_NAME, 8);
+        if (read_node != get_inode_null_value()) {
+            printf("%s\n", filename);
+        }
     }
     return 1;
 }
@@ -77,7 +89,11 @@ int ccat(int arg_num, char** args) {
         printf("Could not find file in directory\n");
         return 0;
     }
-
+    char filetype = get_inode_file_type(fs, file)[0];
+    if (filetype != 'f') {
+        printf("can only read from files\n");
+        return 0;
+    }
     int file_size = get_inode_file_size(fs, file);
     char buffer[file_size+1];
     buffer[0] = '\0';
@@ -98,38 +114,139 @@ int cecho(int arg_num, char **args) {
         return 0;
     }
 
+    char filetype = get_inode_file_type(fs, file)[0];
+    if (filetype != 'f') {
+        printf("can only write to files\n");
+        return 0;
+    }
+
     write_to_inode(fs, file, -1, args[2], get_len(args[2], -1));
     return 1;
 }
 
 int chelp(int arg_num, char** args) {
-    printf("\nAvailable Commands\n");
-    printf("---------------------\n");
-    printf("exit\n");
-    printf("cd [path]\n");
-    printf("ls\n");
-    printf("mkdir [dname]\n");
-    printf("echo [fname] [data]\n");
-    printf("cat [fname]\n");
-    printf("touch [fname]\n\n");
-
+    for (int i = 0; i < total_commands; i++) {
+        print_command_info(i);
+    }
     return 1;
 }
 
+int cstat(int arg_num, char** args) {
+    int node = follow_path(fs, current_path);
+    if (node == -1) {
+        return 0;
+    }
+    int file = get_file(fs, node, args[1]);
+    if (file == -1) {
+        printf("Could not find file in directory\n");
+        return 0;
+    }
+
+    print_inode_stat(fs, file);
+    return 1;
+}
+
+int cman(int arg_num, char** args) {
+    char* command_input = args[1];
+    int found_a_command = 0;
+    for (int i = 0; i < total_commands; i++) {
+        Command command = commands[i];
+        if (str_match(command.name, command_input) == 0) {
+            print_command_info(i);
+            found_a_command = 1;
+        }
+    }
+    if (!found_a_command) {
+        printf("%s is not a known command\n", command_input);
+        return 0;
+    }
+    return 1;
+}
+
+int crm(int arg_num, char** args) {
+    if (delete_file(fs, current_path, args[1]) == -1) {
+        return 0;
+    }
+    return 1;
+}
+
+int crrm(int arg_num, char** args) { //recursive remove
+    int node = follow_path(fs, current_path);
+    if (node == -1) {
+        return 0;
+    }
+    int file = get_file(fs, node, args[2]);
+    if (file == -1) {
+        printf("Could not find file in directory\n");
+        return 0;
+    }
+
+    char filetype = get_inode_file_type(fs, file)[0];
+    if (filetype == 'd') {
+        if (delete_directory(fs, current_path, args[2], 0) == -1) {
+            return 0;
+        }
+    } else {
+        if (delete_file(fs, current_path, args[2]) == -1) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int crmdir(int arg_num, char** args) {
+    int parent_dir_id = follow_path(fs, current_path);
+    if (parent_dir_id == -1) {
+        return 0;
+    }
+
+    int sub_dir_id = get_file(fs, parent_dir_id, args[1]);
+    if (sub_dir_id == -1) {
+        printf("Cannot find subdirectory: %s\n", args[1]);
+        return 0;
+    }
+    if (delete_directory(fs, current_path,  args[1], 1) == -1) {
+        return 0;
+    }
+    return 1;
+}
+
+int cpwd(int arg_num, char** args) {
+    printf("Cannot find subdirectory: %s\n", current_path);
+    return 1;
+}
+
+int cstatus(int arg_num, char** args) {
+    printf("%d\n", !last_status);
+    return 1;
+}
+
+
+
 void init_commands() {
-    add_command("exit", 0, cexit);
-    add_command("cd", 1, ccd);
-    add_command("ls", 0, cls);
-    add_command("mkdir", 1, cmkdir);
-    add_command("touch", 1, ctouch);
-    add_command("cat", 1, ccat);
-    add_command("help", 0, chelp);
-    add_command("echo", 2, cecho);
+    add_command("help", 0, chelp, "","Displays all commands");
+    add_command("exit", 0, cexit, "", "Closes filesystem and exits shell");
+    add_command("cd", 1, ccd, "[path]","Changes current path use .. to reach parent or / to set absolute path");
+    add_command("ls", 0, cls, "","Prints contents of current directory");
+    add_command("mkdir", 1, cmkdir, "[dname]","Creates a directory in the current directory");
+    add_command("touch", 1, ctouch, "[fname]","Creates a file in the current directory");
+    add_command("cat", 1, ccat, "[fname]","Prints the content of a file");
+    add_command("echo", 2, cecho, "[fname] [data]","Appends data to a file");
+    add_command("stat", 1, cstat, "[name]","Prints inode metadata for file or directory");
+    add_command("man", 1, cman, "[command]","Prints command description for given command");
+    add_command("rm", 1, crm, "[fname]","Deletes a file");
+    add_command("rm", 2, crrm, "[-r] [dname]","Deletes file or subdirectory recursively");
+    add_command("rmdir", 1, crmdir, "[dname]","Deletes an empty subdirectory");
+    add_command("pwd", 0, cpwd, "","Prints the current directory");
+    add_command("$?", 0, cstatus, "","Prints exit status of last command");
+
 }
 
 
 void open_shell(int new_fs) {
     printf("Shell initialized\n");
+    printf("-----------------------------------------------------\n");
+    printf("\n");
     init_commands();
     fs = new_fs;
     int running = 1;
@@ -150,6 +267,7 @@ void open_shell(int new_fs) {
             continue;
         }
         int status = handle_input(input_buffer);
+        last_status = status;
         if (status == -1) {
             running = 0;
         }
@@ -172,16 +290,11 @@ int handle_input(char *input) {
     return status;
 }
 
-//commands i want to add
-//rmdir	Remove empty directory
-//rm	Delete file
-//stat	Display inode metadata
-//rmdir -r	Remove directory recursively
-
-//i also want quotes
 
 int run_command(char **args, int arg_num) {
     char* command_input = args[0];
+    int found_a_command = 0;
+
     if (command_input == NULL) {
         printf("Empty command\n");
         return 0;
@@ -190,152 +303,21 @@ int run_command(char **args, int arg_num) {
         Command command = commands[i];
         if (str_match(command.name, command_input) == 0) {
             int required_args = command.arg_num;
-            if (required_args != arg_num -1) {
-                printf("%s requires %d arguments\n", command_input, required_args);
-                return 0;
+            found_a_command = 1;
+            if (required_args == arg_num -1) {
+                return commands[i].func(arg_num, args);
             }
-            return commands[i].func(arg_num, args);
         }
     }
-    printf("Unrecognized command: %s\n", command_input);
+
+    if (!found_a_command) {
+        printf("Unrecognized command: %s\n", command_input);
+        return 0;
+    }
+    printf("Unrecognized number of arguments for: %s\n", command_input);
     return 0;
 }
 
-/**
-    if (str_match(command, "exit") == 0) {
-        if (arg_num != 1) {
-            printf("exit requires 0 arguments\n");
-            return 0;
-        }
-        return -1;
-
-    }
-    if (str_match(command, "cd") == 0) {
-        if (arg_num != 2) {
-            printf("cd requires 1 arguments\n");
-            return 0;
-        }
-
-        char* new_path = strdup(args[1]);
-        if (new_path == NULL) return 0;
-
-        if (format_path(&new_path) == -1) {
-            free(new_path);
-            return 0;
-        }
-
-        free(current_path);
-        current_path = new_path;
-        return 1;
-    }
-
-    if (str_match(command, "ls") == 0) {
-        if (arg_num != 1) {
-            printf("ls requires 0 arguments\n");
-            return 0;
-        }
-        int node = follow_path(fs, current_path);
-        if (node == -1) {
-            return 0;
-        }
-
-        const int MAX_FILE_NAME = get_max_file_name();
-        int paths_in_dir = get_inode_file_size(fs, node) / (get_max_file_name() + 8);
-
-        for (int i = 2; i < paths_in_dir; i++) {
-            char filename[MAX_FILE_NAME + 1];
-            filename[MAX_FILE_NAME] = '\0';
-            read_word_from_inode(fs, node, (MAX_FILE_NAME + 8)*i, filename, MAX_FILE_NAME );
-            printf("%s\n", filename);
-        }
-        return 1;
-    }
-
-    if (str_match(command, "mkdir") == 0) {
-        if (arg_num != 2) {
-            printf("mkdir requires 1 arguments\n");
-            return 0;
-        }
-        create_dir(fs, current_path, args[1]);
-        return 1;
-    }
-
-    if (str_match(command, "touch") == 0) {
-        if (arg_num != 2) {
-            printf("touch requires 1 arguments\n");
-            return 0;
-        }
-        create_file(fs, current_path, args[1]);
-        return 1;
-    }
-
-    if (str_match(command, "cat") == 0) {
-        if (arg_num != 2) {
-            printf("cat requires 1 arguments\n");
-            return 0;
-        }
-        int node = follow_path(fs, current_path);
-        if (node == -1) {
-            return 0;
-        }
-        int file = get_file(fs, node, args[1]);
-        if (file == -1) {
-            printf("Could not find file in directory\n");
-            return 0;
-        }
-
-        int file_size = get_inode_file_size(fs, file);
-        char buffer[file_size+1];
-        buffer[0] = '\0';
-        buffer[file_size] = '\0';
-        read_from_inode(fs, file, 0, buffer, file_size);
-        printf("%s\n", buffer);
-        return 1;
-    }
-
-    if (str_match(command, "echo") == 0) {
-        if (arg_num != 3) {
-            printf("args %d\n", arg_num);
-            printf("echo requires 2 arguments\n");
-            return 0;
-        }
-        int node = follow_path(fs, current_path);
-        if (node == -1) {
-            return 0;
-        }
-        int file = get_file(fs, node, args[1]);
-        if (file == -1) {
-            printf("Could not find file in directory\n");
-            return 0;
-        }
-
-        write_to_inode(fs, file, -1, args[2], get_len(args[2], -1));
-        return 1;
-    }
-
-    if (str_match(command, "help") == 0) {
-        if (arg_num != 1) {
-            printf("args %d\n", arg_num);
-            printf("help requires 1 arguments\n");
-            return 0;
-        }
-
-        printf("\nAvailable Commands\n");
-        printf("---------------------\n");
-        printf("exit\n");
-        printf("cd [path]\n");
-        printf("ls\n");
-        printf("mkdir [dname]\n");
-        printf("echo [fname] [data]\n");
-        printf("cat [fname]\n");
-        printf("touch [fname]\n\n");
-
-
-        return 1;
-    }
-    printf("Unrecognized command: %s\n", command);
-    return 0;
-} **/
 
 int format_path(char** path) {
     char* old_path = *path;
